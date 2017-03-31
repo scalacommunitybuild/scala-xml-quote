@@ -12,4 +12,7 @@ package object quote {
       def apply[T](args: T*): scala.xml.NodeBuffer = macro QuoteImpl.applySeq[T]
     }
   }
+
+  /** Internal. Don't use it! */
+  def $implicitScope(implicit ns: NamespaceBinding = TopScope): NamespaceBinding = ns
 }

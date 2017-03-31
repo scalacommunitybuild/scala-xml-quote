@@ -13,10 +13,10 @@ trait Liftables {
 
   val sx = q"_root_.scala.xml"
 
-  implicit def liftNode(implicit isTopScope: Boolean): Liftable[p.Node] =
+  implicit val liftNode: Liftable[p.Node] =
     Liftable {
-      case n: p.Group     => liftGroup(isTopScope)(n)
-      case n: p.Elem      => liftElem(isTopScope)(n)
+      case n: p.Group     => liftGroup(n)
+      case n: p.Elem      => liftElem(n)
       case n: p.Text      => liftText(n)
       case n: p.ScalaExpr => liftScalaExp(n)
       case n: p.Comment   => liftComment(n)
@@ -26,7 +26,7 @@ trait Liftables {
       case n: p.EntityRef => liftEntityRef(n)
     }
 
-  implicit def liftNodeSeq(implicit isTopScope: Boolean): Liftable[Seq[p.Node]] = Liftable { nodes =>
+  implicit val liftNodeSeq: Liftable[Seq[p.Node]] = Liftable { nodes =>
     val additions = nodes.map { node => q"$$buf &+ $node" }
     q"""
       {
@@ -37,11 +37,11 @@ trait Liftables {
     """
   }
 
-  def liftGroup(implicit isTopScope: Boolean): Liftable[p.Group] = Liftable { gr =>
+  val liftGroup: Liftable[p.Group] = Liftable { gr =>
     q"new $sx.Group(${gr.nodes})"
   }
 
-  def liftElem(implicit isTopScope: Boolean): Liftable[p.Elem] = Liftable { e =>
+  val liftElem: Liftable[p.Elem] = Liftable { e =>
     def liftAttributes(atts: Seq[p.Attribute]) = {
       val nil: Tree = q"$sx.Null"
       atts.foldRight(nil) {
@@ -56,7 +56,7 @@ trait Liftables {
     }
 
     def liftNameSpaces(nss: Seq[p.Attribute]): Tree = {
-      val scope: Tree = if (isTopScope) q"$sx.TopScope" else q"$$scope"
+      val scope: Tree = q"$sx.quote.$$implicitScope"
       nss.foldLeft(scope) {
         case (parent, ns) =>
           val prefix = if (ns.pre.isDefined) q"${ns.key}" else q"null: String"
@@ -77,27 +77,23 @@ trait Liftables {
     }
     require(nss.forall(hasValidURI))
 
+    val prefix = e.prefix.fold(q"null: String": Tree)(p => q"$p")
     val attributes = liftAttributes(atts)
     val scope = liftNameSpaces(nss)
+    val minimizeEmpty = q"${e.children.isEmpty}"
 
-    val _isTopScope = isTopScope;
-    {
-      implicit val isTopScope: Boolean = _isTopScope && nss.isEmpty
-      val prefix = e.prefix.fold(q"null: String": Tree)(p => q"$p")
-      val minimizeEmpty = q"${e.children.isEmpty}"
-
-      if (nss.isEmpty)
-        q"$sx.Elem($prefix, ${e.label}, $attributes, $scope, $minimizeEmpty, ${e.children}: _*)"
-      else {
-        q"""
-          val $$tmpscope = $scope;
-          {
-            val $$scope = $$tmpscope
-            $sx.Elem($prefix, ${e.label}, $attributes, $$scope, $minimizeEmpty, ${e.children}: _*)
-          }
-        """
-      }
+    if (nss.isEmpty) {
+      q"$sx.Elem($prefix, ${e.label}, $attributes, $scope, $minimizeEmpty, ${e.children}: _*)"
+    } else {
+      q"""
+        val $$tmpscope = $scope;
+        {
+          implicit val $$scope: $sx.NamespaceBinding = $$tmpscope
+          $sx.Elem($prefix, ${e.label}, $attributes, $$scope, $minimizeEmpty, ${e.children}: _*)
+        }
+      """
     }
+
   }
 
   val liftText: Liftable[p.Text] = Liftable { t =>
