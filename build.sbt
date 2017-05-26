@@ -1,5 +1,5 @@
 lazy val commonSettings = Seq(
-  version := "0.1",
+  version := "0.1.4",
   scalaVersion := "2.12.2",
   crossScalaVersions := Seq("2.12.2", "2.11.11"),
   scalacOptions ++= Seq(
@@ -12,9 +12,15 @@ lazy val commonSettings = Seq(
   clean in Test := IO.delete((classDirectory in Test).value)
 )
 
+lazy val bintrayPublishSettings = Seq(
+  licenses += "BSD New" -> url("http://opensource.org/licenses/BSD-3-Clause"),
+  organization := "org.renucci"
+)
+
 lazy val xmlquote = (project in file("."))
   .settings(
     commonSettings,
+    bintrayPublishSettings,
     name := "scala-xml-quote",
     initialCommands in console := "import scala.xml.quote._",
     libraryDependencies ++= Seq(
