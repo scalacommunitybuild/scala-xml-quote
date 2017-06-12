@@ -9,14 +9,16 @@ import scala.xml.quote.internal.ast._
   * Note: `$_scope` is used as a scope name because `$scope` is already taken.
   */
 private[internal] trait Liftables { self: QuoteImpl =>
-  import Liftables.{Scope, TopScope}
   import self.c.universe._
 
   def lift(nodes: Seq[Node]): Tree = {
     val tree =
-      if (nodes.size == 1) liftNode(TopScope)(nodes.head)
-      else liftNodes(TopScope)(nodes)
-    fixScopes(tree)
+      if (nodes.size == 1) liftNode(nodes.head)
+      else liftNodes(nodes)
+
+    //fixScopes(tree)
+    println(showCode(tree))
+    tree
   }
 
 
@@ -30,26 +32,38 @@ private[internal] trait Liftables { self: QuoteImpl =>
     * Here the scope of `<b/>` is `TopScope` but should be `scope0`
     */
   private def fixScopes(tree: Tree): Tree = {
+    println("Before fix:")
+    println(showCode(tree))
     val typed = c.typecheck(tree)
 
+    println("After typed:")
+    println(showCode(typed))
+
     var scopeSym = NoSymbol
-    c.internal.typingTransform(typed)((tree, api) => tree match {
+    val foo = c.internal.typingTransform(typed)((tree, api) => tree match {
       case q"$_.TopScope" if scopeSym != NoSymbol =>
         api.typecheck(q"$scopeSym")
-      case q"val $$_scope = $_" => // this assignment is only here when creating new scope
+      case q"val $$scope = $_" => // this assignment is only here when creating new scope
         scopeSym = tree.symbol
         tree
       case _ =>
         api.default(tree)
     })
+
+    println("After fix:")
+    println(showCode(foo))
+    foo
   }
+
+  private val scopeID: Tree = Ident(TermName("$scope"))
+  println(scopeID.symbol)
 
   private val sx = q"_root_.scala.xml"
 
-  private implicit def liftNode(implicit outer: Scope): Liftable[Node] =
+  private implicit val liftNode: Liftable[Node] =
     Liftable {
-      case n: Group       => liftGroup(outer)(n)
-      case n: Elem        => liftElem(outer)(n)
+      case n: Group       => liftGroup(n)
+      case n: Elem        => liftElem(n)
       case n: Text        => liftText(n)
       case n: Placeholder => liftPlaceholder(n)
       case n: Comment     => liftComment(n)
@@ -59,7 +73,7 @@ private[internal] trait Liftables { self: QuoteImpl =>
       case n: EntityRef   => liftEntityRef(n)
     }
 
-  private implicit def liftNodes(implicit outer: Scope): Liftable[Seq[Node]] = Liftable { nodes =>
+  private implicit val liftNodes: Liftable[Seq[Node]] = Liftable { nodes =>
     val additions = nodes.map(node => q"$$buf &+ $node")
     q"""
       {
@@ -70,15 +84,11 @@ private[internal] trait Liftables { self: QuoteImpl =>
     """
   }
 
-  private def liftGroup(implicit outer: Scope) = Liftable { gr: Group =>
+  private val liftGroup = Liftable { gr: Group =>
     q"new $sx.Group(${gr.nodes})"
   }
 
-  private def liftElem(implicit outer: Scope) = Liftable { e: Elem =>
-    def outerScope =
-      if (outer.isTopScope) q"$sx.TopScope"
-      else q"$$_scope"
-
+  private val liftElem = Liftable { e: Elem =>
     def liftAttributes(atts: Seq[Attribute]): Seq[Tree] = {
       val metas = atts.reverse.map { a =>
         val value = a.value match {
@@ -98,7 +108,7 @@ private[internal] trait Liftables { self: QuoteImpl =>
     }
 
     def liftNameSpaces(nss: Seq[Attribute]): Seq[Tree] = {
-      val init: Tree = q"var $$tmpscope: $sx.NamespaceBinding = $outerScope"
+      val init: Tree = q"var $$tmpscope: $sx.NamespaceBinding = $scopeID"
 
       val scopes = nss.map { ns =>
         val prefix = if (ns.prefix.nonEmpty) q"${ns.key}" else q"null: String"
@@ -126,20 +136,17 @@ private[internal] trait Liftables { self: QuoteImpl =>
 
     val minimizeEmpty = q"${e.minimizeEmpty}"
 
-    def children = {
-      val newScope = new Scope(outer.isTopScope && nss.isEmpty)
-      liftNodes(newScope)(e.children)
-    }
+    def children = liftNodes(e.children)
 
-    def newElem(scope: Tree) =
-      if (e.children.isEmpty) q"new $sx.Elem($prefix, $label, $metaval, $scope, $minimizeEmpty)"
-      else q"new $sx.Elem($prefix, $label, $metaval, $scope, $minimizeEmpty, $children: _*)"
+    def newElem =
+      if (e.children.isEmpty) q"new $sx.Elem($prefix, $label, $metaval, $scopeID, $minimizeEmpty)"
+      else q"new $sx.Elem($prefix, $label, $metaval, $scopeID, $minimizeEmpty, $children: _*)"
 
     if (nss.isEmpty) {
       q"""
         {
           ..$metapre
-          ${newElem(outerScope)}
+          ${newElem}
         }
        """
     } else {
@@ -148,9 +155,9 @@ private[internal] trait Liftables { self: QuoteImpl =>
         {
           ..$scopepre;
           {
-            val $$_scope = $$tmpscope
+            val $scopeID = $$tmpscope
             ..$metapre
-            ${newElem(q"$$_scope")}
+            ${newElem}
           }
         }
        """
@@ -184,9 +191,4 @@ private[internal] trait Liftables { self: QuoteImpl =>
   private val liftEntityRef = Liftable { er: EntityRef =>
     q"new $sx.EntityRef(${er.name})"
   }
-}
-
-private object Liftables {
-  class Scope(val isTopScope: Boolean) extends AnyVal
-  final val TopScope = new Scope(true)
 }
