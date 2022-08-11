@@ -25,7 +25,7 @@ lazy val xmlquote = (project in file("."))
     initialCommands in console := "import scala.xml.quote._",
     libraryDependencies ++= Seq(
       "org.scala-lang" % "scala-reflect" % scalaVersion.value,
-      "org.scala-lang.modules" %% "scala-xml" % "1.0.6",
+      "org.scala-lang.modules" %% "scala-xml" % "2.1.0",
       "com.lihaoyi" %% "fastparse" % "0.4.3",
       "org.scalatest" %% "scalatest" % "3.0.1" % "test"
     )
