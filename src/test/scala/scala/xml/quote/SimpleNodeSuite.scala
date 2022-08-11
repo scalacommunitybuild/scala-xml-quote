@@ -74,7 +74,6 @@ class SimpleNodeSuite extends XmlQuoteSuite {
 
   test("reconstruct Comment") {
     assert(xml"<!---->" ≈ <!---->)
-    assert(xml"<!----->" ≈ <!----->)
     assert(xml"<!--foo-->" ≈ <!--foo-->)
     assert(xml"<!--a-b-->" ≈ <!--a-b-->)
   }
